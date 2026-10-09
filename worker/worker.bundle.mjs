@@ -25913,6 +25913,48 @@ function openAiTools(tools) {
   });
   return { converted, originalToWire, wireToOriginal };
 }
+var HOST_REMINDER = "Hermes host: connected tools live in the `opencode` namespace via CallDynamicTool; Hermes's approval flow is the user's approval; ask questions in plain text.";
+function hostOrientation(originalToWire) {
+  const list = (names) => names.map((name14) => originalToWire.get(name14)).filter(Boolean).map((wire) => `\`${wire}\``).join(", ");
+  const fileTools = list(["read_file", "search_files", "terminal", "patch", "write_file"]);
+  if (!fileTools) return "";
+  const lines = [
+    "<hermes_host>",
+    "Hermes is the harness; Cursor is the model provider through the hermes-cursor-provider bridge. Hermes owns tools, approvals, subagents, memory, and rendering; the Cursor system prompt governs tone and style only.",
+    `- Tools: the \`opencode\` namespace, called through \`CallDynamicTool\`, holds every connected tool. File and shell work: ${fileTools}. These IDs are stable; fetch each schema with \`GetDynamicTools\` the first time you use it.`
+  ];
+  const delegate = originalToWire.get("delegate_task");
+  if (delegate) lines.push(`- Subagents: \`${delegate}\`; results arrive after you end your turn.`);
+  lines.push(
+    "- Approvals: Hermes's approval flow governs terminal commands and stands in for the user's explicit approval; run commands directly instead of asking in chat first.",
+    "- Questions: plain text with numbered options, recommended option first.",
+    "- Code citations: a `path:start-end` line, then a fenced block with a language tag."
+  );
+  const memory = list(["memory", "skills_list", "skill_view", "skill_manage"]);
+  if (memory) lines.push(`- Memory and skills: ${memory}.`);
+  lines.push("</hermes_host>");
+  return lines.join("\n");
+}
+function withHostOrientation(prompt, originalToWire) {
+  const block = hostOrientation(originalToWire);
+  const userIndexes = prompt.flatMap((message, index) => message.role === "user" ? [index] : []);
+  if (!block || userIndexes.length === 0) return prompt;
+  const first = userIndexes[0];
+  const last = userIndexes[userIndexes.length - 1];
+  return prompt.map((message, index) => {
+    if (index === first) {
+      return { ...message, content: [{ type: "text", text: `${block}
+
+` }, ...message.content] };
+    }
+    if (index === last) {
+      return { ...message, content: [...message.content, { type: "text", text: `
+
+${HOST_REMINDER}` }] };
+    }
+    return message;
+  });
+}
 function toolChoice(value, originalToWire) {
   if (value == null || value === "auto") return { type: "auto" };
   if (value === "none") return { type: "none" };
@@ -26001,7 +26043,10 @@ async function runChat(id, params, signal) {
   );
   timeout.unref?.();
   const callOptions = {
-    prompt: openAiMessagesToPrompt(params.messages || [], tools.originalToWire),
+    prompt: withHostOrientation(
+      openAiMessagesToPrompt(params.messages || [], tools.originalToWire),
+      tools.originalToWire
+    ),
     tools: tools.converted,
     toolChoice: toolChoice(params.toolChoice, tools.originalToWire),
     headers: cursorSessionHeaders(params.sessionId),
@@ -26413,6 +26458,16 @@ if (SELF_TEST) {
   }
   const sessionCorrelationGuard = cursorSessionHeaders("physical-session")["x-session-id"] === "physical-session" && Object.keys(cursorSessionHeaders(void 0)).length === 0 && invalidSessionGuard;
   if (!sessionCorrelationGuard) throw new Error("Hermes session correlation self-test failed");
+  const oriented = withHostOrientation(
+    [
+      { role: "system", content: "s" },
+      { role: "user", content: [{ type: "text", text: "first" }] },
+      { role: "user", content: [{ type: "text", text: "last" }] }
+    ],
+    openAiTools([{ type: "function", function: { name: "read_file" } }]).originalToWire
+  );
+  const hostOrientationGuard = oriented[1].content[0].text.includes(wireToolName("read_file")) && oriented[1].content[1].text === "first" && oriented[2].content.at(-1).text.includes(HOST_REMINDER) && withHostOrientation(oriented, /* @__PURE__ */ new Map()) === oriented;
+  if (!hostOrientationGuard) throw new Error("Hermes host orientation self-test failed");
   process2.stdout.write(
     `${JSON.stringify({
       ok: true,
@@ -26422,7 +26477,8 @@ if (SELF_TEST) {
       unsupportedWebpGuard,
       oauthRefreshGuard,
       reasoningEffortGuard,
-      sessionCorrelationGuard
+      sessionCorrelationGuard,
+      hostOrientationGuard
     })}
 `
   );
