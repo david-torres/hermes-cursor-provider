@@ -6,6 +6,7 @@ import os
 import threading
 from collections.abc import Iterator
 from io import BytesIO
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -78,6 +79,35 @@ def configured(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
 def make_client() -> tuple[HermesCursorClient, FakeSupervisor]:
     supervisor = FakeSupervisor()
     return HermesCursorClient(supervisor=supervisor), supervisor
+
+
+def test_completion_uses_each_sessions_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    import sys
+
+    client, supervisor = make_client()
+    for name in ("club", "other-project"):
+        workspace = tmp_path / name
+        workspace.mkdir()
+        monkeypatch.setitem(sys.modules, "agent.runtime_cwd", SimpleNamespace(
+            resolve_agent_cwd=lambda workspace=workspace: workspace))
+        client.chat.completions.create(
+            model="approved-model", messages=[{"role": "user", "content": "hello"}])
+        assert supervisor.requests[-1][1]["workspaceRoot"] == str(workspace)
+
+
+def test_completion_without_hermes_uses_process_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "agent.runtime_cwd", None)
+    monkeypatch.chdir(tmp_path)
+    client, supervisor = make_client()
+    client.chat.completions.create(
+        model="approved-model", messages=[{"role": "user", "content": "hello"}])
+    assert supervisor.requests[-1][1]["workspaceRoot"] == os.getcwd()
 
 
 def test_unknown_model_fails_before_worker_request() -> None:

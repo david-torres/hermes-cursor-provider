@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import math
+import os
 import re
 import struct
 import threading
@@ -533,7 +534,14 @@ class HermesCursorClient:
             if timeout is not None
             else self._default_timeout_seconds
         )
+        try:
+            from agent.runtime_cwd import resolve_agent_cwd
+        except ImportError:
+            workspace_root = os.getcwd()
+        else:
+            workspace_root = str(resolve_agent_cwd())
         params = {
+            "workspaceRoot": workspace_root,
             "model": model,
             "messages": prepared_messages,
             "stream": stream,

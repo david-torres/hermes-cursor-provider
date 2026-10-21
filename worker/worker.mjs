@@ -601,7 +601,7 @@ async function runChat(id, params, signal) {
       requiredPath(STATE_DIR, "state directory"),
       accessTokenCache?.accountKey || accountKeyForToken(token, readCredentials().refreshToken),
     ),
-    workspaceRoot: process.cwd(),
+    workspaceRoot: params.workspaceRoot || process.cwd(),
     telemetryEnabled: false,
     retry: { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8_000 },
   })

@@ -25990,7 +25990,7 @@ async function runChat(id, params, signal) {
       requiredPath(STATE_DIR, "state directory"),
       accessTokenCache?.accountKey || accountKeyForToken(token, readCredentials().refreshToken)
     ),
-    workspaceRoot: process2.cwd(),
+    workspaceRoot: params.workspaceRoot || process2.cwd(),
     telemetryEnabled: false,
     retry: { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8e3 }
   });
